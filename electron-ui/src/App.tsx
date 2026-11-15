@@ -415,6 +415,8 @@ function App() {
               chunkProgress={player.chunkProgress}
               playProgress={player.playProgress}
               stats={player.stats}
+              onSeek={player.canDownload ? player.seek : undefined}
+              onSeekBy={player.seekBy}
             />
 
             {/* Screen-reader status */}

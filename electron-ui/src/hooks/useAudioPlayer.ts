@@ -665,10 +665,108 @@ export function useAudioPlayer(
     }
   }, [getCurrentChunkIndex]);
 
+  // Seek to a time in seconds. Only audio that has already been generated is
+  // reachable: the target is clamped to the decoded buffers, which are
+  // rescheduled back-to-back from the target. Chunks still streaming in
+  // append after them as usual.
+  const seekToSeconds = useCallback(
+    (seconds: number) => {
+      const ctx = audioCtxRef.current;
+      const gain = gainNodeRef.current;
+      const buffers = cachedAudioBuffersRef.current;
+      if (!ctx || !gain || buffers.length === 0) return;
+
+      const generated = buffers.reduce((sum, b) => sum + b.duration, 0);
+      const displayDuration = allChunksReceivedRef.current
+        ? generated
+        : Math.max(textBasedEstimateRef.current, generated);
+      const target = Math.max(0, Math.min(generated - 0.05, seconds));
+
+      scheduledSourcesRef.current.forEach((s) => {
+        try {
+          s.stop();
+        } catch (_) {
+          /* ignore */
+        }
+      });
+      scheduledSourcesRef.current = [];
+      if (progressTimerRef.current) {
+        clearTimeout(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+
+      const start = ctx.currentTime + 0.05;
+      playbackStartTimeRef.current = start - target;
+      chunkTimingsRef.current = [];
+      let offset = 0;
+      for (const buffer of buffers) {
+        const chunkStart = playbackStartTimeRef.current + offset;
+        const chunkEnd = chunkStart + buffer.duration;
+        chunkTimingsRef.current.push({ startTime: chunkStart, endTime: chunkEnd });
+        if (offset + buffer.duration > target) {
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(gain);
+          const into = Math.max(0, target - offset);
+          source.start(Math.max(start, chunkStart), into);
+          scheduledSourcesRef.current.push(source);
+        }
+        offset += buffer.duration;
+      }
+      scheduledEndTimeRef.current = playbackStartTimeRef.current + generated;
+
+      const pct = displayDuration > 0 ? Math.min(100, (target / displayDuration) * 100) : 0;
+      const suffix = allChunksReceivedRef.current ? "" : "~";
+      setState((s) => ({
+        ...s,
+        playProgress: pct,
+        stats: `${formatTime(target)} / ${suffix}${formatTime(displayDuration)}`,
+        // Seeking after playback finished starts it again from the new point.
+        isPlaying: true,
+        info: s.isPaused ? "Paused" : "Playing...",
+      }));
+      window.electronAPI?.setPlaying(true);
+
+      // While paused the context is suspended; the play/resume path restarts
+      // the tick. Otherwise keep the progress bar moving from the new point.
+      if (ctx.state !== "suspended") {
+        progressTimerRef.current = window.setTimeout(updatePlayback, PROGRESS_TICK_MS);
+      }
+    },
+    [updatePlayback]
+  );
+
+  // Seek to a fraction (0–1) of the duration shown on the progress bar.
+  const seek = useCallback(
+    (fraction: number) => {
+      const generated = cachedAudioBuffersRef.current.reduce((sum, b) => sum + b.duration, 0);
+      const displayDuration = allChunksReceivedRef.current
+        ? generated
+        : Math.max(textBasedEstimateRef.current, generated);
+      seekToSeconds(fraction * displayDuration);
+    },
+    [seekToSeconds]
+  );
+
+  // Jump forwards (positive) or backwards (negative) from the playhead.
+  const seekBy = useCallback(
+    (deltaSeconds: number) => {
+      const ctx = audioCtxRef.current;
+      if (!ctx) return;
+      // After playback ends the clock keeps running, so cap at the real end.
+      const generated = cachedAudioBuffersRef.current.reduce((sum, b) => sum + b.duration, 0);
+      const position = Math.min(generated, ctx.currentTime - playbackStartTimeRef.current);
+      seekToSeconds(position + deltaSeconds);
+    },
+    [seekToSeconds]
+  );
+
   return {
     ...state,
     play,
     stop,
+    seek,
+    seekBy,
     setVolume,
     download,
     cancelExport,
