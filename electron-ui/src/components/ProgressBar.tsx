@@ -10,7 +10,7 @@ interface ProgressBarProps {
   onSeekBy?: (deltaSeconds: number) => void;
 }
 
-const ARROW_STEP_SECONDS = 5;
+export const ARROW_STEP_SECONDS = 5;
 
 export function ProgressBar({
   chunkProgress,

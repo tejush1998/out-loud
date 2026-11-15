@@ -3,7 +3,7 @@ import { TextInput } from "./components/TextInput";
 import { VoiceSelect } from "./components/VoiceSelect";
 import { VolumeSlider } from "./components/VolumeSlider";
 import { PlaybackControls } from "./components/PlaybackControls";
-import { ProgressBar } from "./components/ProgressBar";
+import { ARROW_STEP_SECONDS, ProgressBar } from "./components/ProgressBar";
 import { SettingsCheckbox } from "./components/SettingsCheckbox";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { AboutDialog } from "./components/AboutDialog";
@@ -246,15 +246,19 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [aboutOpen]);
 
-  // Space plays/pauses, like a video player, unless focus is somewhere that
-  // takes typing (text box, inputs, selects) or a dialog or menu is open.
+  // Space plays/pauses and ←/→ jump 5 s, like a video player, unless focus is
+  // somewhere that takes typing (text box, inputs, selects) or a dialog or menu
+  // is open.
   const playPauseRef = useRef(handlePlayPause);
+  const seekByRef = useRef(player.canDownload ? player.seekBy : null);
   useEffect(() => {
     playPauseRef.current = handlePlayPause;
+    seekByRef.current = player.canDownload ? player.seekBy : null;
   });
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (e.key !== " " && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       if (aboutOpen || identityOpen) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -264,7 +268,11 @@ function App() {
       }
       // Also stops a focused button from being clicked by the same keypress.
       e.preventDefault();
-      if (!e.repeat) playPauseRef.current();
+      if (e.key === " ") {
+        if (!e.repeat) playPauseRef.current();
+      } else {
+        seekByRef.current?.(e.key === "ArrowLeft" ? -ARROW_STEP_SECONDS : ARROW_STEP_SECONDS);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
