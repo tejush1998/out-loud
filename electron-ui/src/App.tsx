@@ -246,6 +246,30 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [aboutOpen]);
 
+  // Space plays/pauses, like a video player, unless focus is somewhere that
+  // takes typing (text box, inputs, selects) or a dialog or menu is open.
+  const playPauseRef = useRef(handlePlayPause);
+  useEffect(() => {
+    playPauseRef.current = handlePlayPause;
+  });
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== " " || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (aboutOpen || identityOpen) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest("textarea, input, select, [contenteditable], [role=dialog], [role=menu]")
+      ) {
+        return;
+      }
+      // Also stops a focused button from being clicked by the same keypress.
+      e.preventDefault();
+      if (!e.repeat) playPauseRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [aboutOpen, identityOpen]);
+
   const handleQuit = () => {
     window.electronAPI?.quit();
   };
