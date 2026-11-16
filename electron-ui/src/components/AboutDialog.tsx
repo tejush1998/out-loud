@@ -63,6 +63,8 @@ export function AboutDialog({ open, version, onClose, onOpen }: AboutDialogProps
             keys={isMac ? "⌘ + L" : "Ctrl + L"}
             desc="Focus the text box & select all — paste to replace"
           />
+          <Row keys="Space" desc="Play / pause (outside the text box)" />
+          <Row keys="← / →" desc="Skip back / forward 5 s" />
         </section>
 
         {isMac && (

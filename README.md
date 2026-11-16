@@ -121,6 +121,9 @@ Use decimals or `ms` for finer control (`[0.5s]`, `[250ms]`). Punctuation also p
 - **⌘/Ctrl + Enter** — speak the current text (works any time).
 - **Shift + Enter** — insert a line break without speaking.
 - **Esc** — jump the cursor back to the text box.
+- **Space** — play / pause, when the cursor isn't in the text box.
+- **← / →** — skip back / forward 5 seconds, when the cursor isn't in the text box.
+- **Progress bar** — click or drag to jump to any part that's already generated.
 - **Talker mode** (Settings): plain **Enter** speaks and then clears the box, and the text box stays editable while audio plays — type-and-go, no need to find a button.
 
 **Blend voices (API).** The `voice` field accepts mixing formulas, e.g. `af_heart*0.6+am_michael*0.4` (weights must sum to 1) — see [API](#api).
