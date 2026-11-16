@@ -6,19 +6,9 @@ interface ProgressBarProps {
   stats: string;
   /** Seek to a fraction (0–1) of the bar. Omit to make the bar read-only. */
   onSeek?: (fraction: number) => void;
-  /** Jump by a number of seconds from the playhead (arrow keys). */
-  onSeekBy?: (deltaSeconds: number) => void;
 }
 
-export const ARROW_STEP_SECONDS = 5;
-
-export function ProgressBar({
-  chunkProgress,
-  playProgress,
-  stats,
-  onSeek,
-  onSeekBy,
-}: ProgressBarProps) {
+export function ProgressBar({ chunkProgress, playProgress, stats, onSeek }: ProgressBarProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   // While dragging, the green bar follows the pointer; the seek itself happens
   // on release so audio isn't rescheduled on every pointer move.
@@ -54,10 +44,9 @@ export function ProgressBar({
             : ""
         }`}
         onKeyDown={(e) => {
+          // ← / → are handled app-wide in App.tsx.
           if (!onSeek) return;
-          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-            onSeekBy?.(e.key === "ArrowLeft" ? -ARROW_STEP_SECONDS : ARROW_STEP_SECONDS);
-          } else if (e.key === "Home") {
+          if (e.key === "Home") {
             onSeek(0);
           } else if (e.key === "End") {
             // The player clamps this to the end of the generated audio.

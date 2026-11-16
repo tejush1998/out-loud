@@ -3,7 +3,7 @@ import { TextInput } from "./components/TextInput";
 import { VoiceSelect } from "./components/VoiceSelect";
 import { VolumeSlider } from "./components/VolumeSlider";
 import { PlaybackControls } from "./components/PlaybackControls";
-import { ARROW_STEP_SECONDS, ProgressBar } from "./components/ProgressBar";
+import { ProgressBar } from "./components/ProgressBar";
 import { SettingsCheckbox } from "./components/SettingsCheckbox";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { AboutDialog } from "./components/AboutDialog";
@@ -224,9 +224,21 @@ function App() {
     [lib, loadIntoEditor]
   );
 
+  // Keep the latest handlers in refs so the keydown listener below can call
+  // them without re-subscribing. handlePlayPause is recreated every render,
+  // so this runs after every render.
+  const playPauseRef = useRef(handlePlayPause);
+  const skipRef = useRef(player.canDownload ? player.skip : null);
+  useEffect(() => {
+    playPauseRef.current = handlePlayPause;
+    skipRef.current = player.canDownload ? player.skip : null;
+  });
+
   // Esc returns focus to the text box, or closes the About panel. ⌘/Ctrl+L
   // focuses it with everything selected, so a paste replaces the content
-  // without touching the mouse.
+  // without touching the mouse. Space plays/pauses and ←/→ skip 5 s, like a
+  // video player, unless focus is somewhere that takes typing (text box,
+  // inputs, selects) or a dialog or menu is open.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "l") {
@@ -235,30 +247,16 @@ function App() {
         textareaRef.current?.select();
         return;
       }
-      if (e.key !== "Escape") return;
-      if (aboutOpen) {
-        setAboutOpen(false);
-      } else {
-        textareaRef.current?.focus();
+      if (e.key === "Escape") {
+        if (aboutOpen) {
+          setAboutOpen(false);
+        } else {
+          textareaRef.current?.focus();
+        }
+        return;
       }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [aboutOpen]);
-
-  // Space plays/pauses and ←/→ jump 5 s, like a video player, unless focus is
-  // somewhere that takes typing (text box, inputs, selects) or a dialog or menu
-  // is open.
-  const playPauseRef = useRef(handlePlayPause);
-  const seekByRef = useRef(player.canDownload ? player.seekBy : null);
-  useEffect(() => {
-    playPauseRef.current = handlePlayPause;
-    seekByRef.current = player.canDownload ? player.seekBy : null;
-  });
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       if (e.key !== " " && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       if (aboutOpen || identityOpen) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -271,7 +269,7 @@ function App() {
       if (e.key === " ") {
         if (!e.repeat) playPauseRef.current();
       } else {
-        seekByRef.current?.(e.key === "ArrowLeft" ? -ARROW_STEP_SECONDS : ARROW_STEP_SECONDS);
+        skipRef.current?.(e.key === "ArrowLeft" ? -1 : 1);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -448,7 +446,6 @@ function App() {
               playProgress={player.playProgress}
               stats={player.stats}
               onSeek={player.canDownload ? player.seek : undefined}
-              onSeekBy={player.seekBy}
             />
 
             {/* Screen-reader status */}

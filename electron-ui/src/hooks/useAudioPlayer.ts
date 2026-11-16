@@ -18,6 +18,9 @@ const AHEAD = 20;
 // background, which froze the progress bar until the user interacted again.
 const PROGRESS_TICK_MS = 200;
 
+// How far one skip (← / →) jumps.
+const SKIP_SECONDS = 5;
+
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -103,6 +106,17 @@ export function useAudioPlayer(
     onExportedRef.current = onExported;
   }, [onExported]);
 
+  const stopScheduledSources = useCallback(() => {
+    scheduledSourcesRef.current.forEach((s) => {
+      try {
+        s.stop();
+      } catch (_) {
+        /* ignore */
+      }
+    });
+    scheduledSourcesRef.current = [];
+  }, []);
+
   const stopAudio = useCallback(() => {
     // Cancel any in-flight worker generation so it doesn't keep running (and a
     // backpressure-parked generation doesn't sit idle) after teardown/Stop.
@@ -115,14 +129,7 @@ export function useAudioPlayer(
       clearTimeout(progressTimerRef.current);
       progressTimerRef.current = null;
     }
-    scheduledSourcesRef.current.forEach((s) => {
-      try {
-        s.stop();
-      } catch (_) {
-        /* ignore */
-      }
-    });
-    scheduledSourcesRef.current = [];
+    stopScheduledSources();
     if (audioCtxRef.current) {
       audioCtxRef.current.close();
       audioCtxRef.current = null;
@@ -138,7 +145,7 @@ export function useAudioPlayer(
     }));
     // Notify main process
     window.electronAPI?.setPlaying(false);
-  }, []);
+  }, [stopScheduledSources]);
 
   const stop = useCallback(() => {
     stopAudio();
@@ -665,6 +672,18 @@ export function useAudioPlayer(
     }
   }, [getCurrentChunkIndex]);
 
+  // Seconds of audio decoded so far, and the length the progress bar is drawn
+  // against. Must match updatePlayback's displayDuration (the fixed text-based
+  // estimate until generation finishes) so a click lands where the bar shows.
+  const generatedSeconds = useCallback(
+    () => cachedAudioBuffersRef.current.reduce((sum, b) => sum + b.duration, 0),
+    []
+  );
+  const barDuration = useCallback(
+    () => (allChunksReceivedRef.current ? generatedSeconds() : textBasedEstimateRef.current),
+    [generatedSeconds]
+  );
+
   // Seek to a time in seconds. Only audio that has already been generated is
   // reachable: the target is clamped to the decoded buffers, which are
   // rescheduled back-to-back from the target. Chunks still streaming in
@@ -676,20 +695,11 @@ export function useAudioPlayer(
       const buffers = cachedAudioBuffersRef.current;
       if (!ctx || !gain || buffers.length === 0) return;
 
-      const generated = buffers.reduce((sum, b) => sum + b.duration, 0);
-      const displayDuration = allChunksReceivedRef.current
-        ? generated
-        : Math.max(textBasedEstimateRef.current, generated);
+      const generated = generatedSeconds();
+      const displayDuration = barDuration();
       const target = Math.max(0, Math.min(generated - 0.05, seconds));
 
-      scheduledSourcesRef.current.forEach((s) => {
-        try {
-          s.stop();
-        } catch (_) {
-          /* ignore */
-        }
-      });
-      scheduledSourcesRef.current = [];
+      stopScheduledSources();
       if (progressTimerRef.current) {
         clearTimeout(progressTimerRef.current);
         progressTimerRef.current = null;
@@ -733,32 +743,25 @@ export function useAudioPlayer(
         progressTimerRef.current = window.setTimeout(updatePlayback, PROGRESS_TICK_MS);
       }
     },
-    [updatePlayback]
+    [updatePlayback, generatedSeconds, barDuration, stopScheduledSources]
   );
 
   // Seek to a fraction (0–1) of the duration shown on the progress bar.
   const seek = useCallback(
-    (fraction: number) => {
-      const generated = cachedAudioBuffersRef.current.reduce((sum, b) => sum + b.duration, 0);
-      const displayDuration = allChunksReceivedRef.current
-        ? generated
-        : Math.max(textBasedEstimateRef.current, generated);
-      seekToSeconds(fraction * displayDuration);
-    },
-    [seekToSeconds]
+    (fraction: number) => seekToSeconds(fraction * barDuration()),
+    [seekToSeconds, barDuration]
   );
 
-  // Jump forwards (positive) or backwards (negative) from the playhead.
-  const seekBy = useCallback(
-    (deltaSeconds: number) => {
+  // Skip back (-1) or forward (+1) by SKIP_SECONDS from the playhead.
+  const skip = useCallback(
+    (direction: -1 | 1) => {
       const ctx = audioCtxRef.current;
       if (!ctx) return;
       // After playback ends the clock keeps running, so cap at the real end.
-      const generated = cachedAudioBuffersRef.current.reduce((sum, b) => sum + b.duration, 0);
-      const position = Math.min(generated, ctx.currentTime - playbackStartTimeRef.current);
-      seekToSeconds(position + deltaSeconds);
+      const position = Math.min(generatedSeconds(), ctx.currentTime - playbackStartTimeRef.current);
+      seekToSeconds(position + direction * SKIP_SECONDS);
     },
-    [seekToSeconds]
+    [seekToSeconds, generatedSeconds]
   );
 
   return {
@@ -766,7 +769,7 @@ export function useAudioPlayer(
     play,
     stop,
     seek,
-    seekBy,
+    skip,
     setVolume,
     download,
     cancelExport,
